@@ -91,7 +91,7 @@ class Hijack:
 					print("Received from client: " + packet.getlayer("Raw").load.decode())
 					self.my_seq += payload_len
 				send(new_packet, iface=self.dev, verbose=False)
-		elif flags == "FA" or flags == "FPA":
+		else:
 			print("세션 종료 패킷 감지 (%s). 반대편으로 forward" % flags)
 
 			if ip.src == self.srv_ip:
