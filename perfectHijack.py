@@ -42,9 +42,9 @@ class Hijack:
 		#Check if this is a hijackable packet
 		if tcp.sprintf("%flags%") == "A" or tcp.sprintf("%flags%") == "PA":
 
-            payload_len = len(packet.getlayer("Raw").load) if packet.haslayer("Raw") else 0
+			payload_len = len(packet.getlayer("Raw").load) if packet.haslayer("Raw") else 0
 
-            #The packet is from server to client
+			#The packet is from server to client
 			if tcp.sport == self.srv_port and ip.src == self.srv_ip:
 
 				if not self.hijacked:
