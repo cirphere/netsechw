@@ -45,8 +45,8 @@ class Hijack:
 
 			payload_len = len(packet.getlayer("Raw").load) if packet.haslayer("Raw") else 0
 
-            if packet["Ether"].src == self.my_mac:
-                return
+			if packet["Ether"].src == self.my_mac:
+				return
 
 			#The packet is from server to client
 			elif tcp.sport == self.srv_port and ip.src == self.srv_ip and ip.dst == self.client_ip:
