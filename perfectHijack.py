@@ -103,11 +103,7 @@ class Hijack:
 				new_packet = new_packet / Raw(load=packet.getlayer("Raw").load)
 			send(new_packet, iface=self.dev, verbose=False)
 
-			print("FIN 전달 완료. 세션 초기화")
-			self.my_seq = 0
-			self.my_ack = 0
-			self.my_offset = 0
-			self.hijacked = False
+			print("FIN 전달 완료")
 
 	def run(self):
 		if self.client_ip:
